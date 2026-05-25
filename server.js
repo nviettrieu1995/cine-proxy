@@ -145,6 +145,13 @@ function requestViaProxy(targetUrl, clientReq, clientRes, redirectCount = 0) {
                                parsedUrl.pathname.endsWith('.m3u8');
 
                 if (isM3U8 && httpsRes.statusCode === 200) {
+                    // Set strictly no-cache for manifest files so browsers never cache the proxy output
+                    responseHeaders['cache-control'] = 'no-cache, no-store, must-revalidate';
+                    responseHeaders['pragma'] = 'no-cache';
+                    responseHeaders['expires'] = '0';
+                    delete responseHeaders['etag'];
+                    delete responseHeaders['last-modified'];
+
                     let bodyBuffer = [];
                     httpsRes.on('data', chunk => bodyBuffer.push(chunk));
                     httpsRes.on('end', () => {
