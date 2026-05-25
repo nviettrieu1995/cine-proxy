@@ -22,6 +22,24 @@ function writeCorsHeaders(res, statusCode, extraHeaders = {}) {
     res.writeHead(statusCode, headers);
 }
 
+// Convert relative paths in m3u8 playlist to absolute URLs to fix relative paths resolving to Proxy Server root
+function rewriteM3U8(content, baseUrl) {
+    const lines = content.split('\n');
+    const rewrittenLines = lines.map(line => {
+        const trimmed = line.trim();
+        if (trimmed.length === 0 || trimmed.startsWith('#')) {
+            return line;
+        }
+        try {
+            // Resolve relative path using the playlist target URL as base
+            return new URL(trimmed, baseUrl).href;
+        } catch (e) {
+            return line;
+        }
+    });
+    return rewrittenLines.join('\n');
+}
+
 // Perform HTTPS Request through HTTP Tunneling (CONNECT method)
 function requestViaProxy(targetUrl, clientReq, clientRes, redirectCount = 0) {
     if (redirectCount > 5) {
@@ -79,7 +97,7 @@ function requestViaProxy(targetUrl, clientReq, clientRes, redirectCount = 0) {
                 'User-Agent': clientReq.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             };
 
-            // Copy Authorization or other client-sent headers if present
+            // Copy Range headers if client requested seeking inside video streams
             if (clientReq.headers['range']) {
                 headers['Range'] = clientReq.headers['range'];
             }
@@ -120,8 +138,29 @@ function requestViaProxy(targetUrl, clientReq, clientRes, redirectCount = 0) {
                 responseHeaders['Access-Control-Allow-Headers'] = '*';
                 responseHeaders['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Content-Type';
 
-                clientRes.writeHead(httpsRes.statusCode, responseHeaders);
-                httpsRes.pipe(clientRes);
+                // Check if target file is an HLS manifest (.m3u8) to rewrite relative URLs
+                const contentType = httpsRes.headers['content-type'] || '';
+                const isM3U8 = contentType.includes('mpegurl') || 
+                               contentType.includes('x-mpegurl') || 
+                               parsedUrl.pathname.endsWith('.m3u8');
+
+                if (isM3U8 && httpsRes.statusCode === 200) {
+                    let bodyBuffer = [];
+                    httpsRes.on('data', chunk => bodyBuffer.push(chunk));
+                    httpsRes.on('end', () => {
+                        const content = Buffer.concat(bodyBuffer).toString('utf8');
+                        const rewritten = rewriteM3U8(content, targetUrl);
+                        const rewrittenBuffer = Buffer.from(rewritten, 'utf8');
+                        
+                        responseHeaders['content-length'] = rewrittenBuffer.length;
+                        clientRes.writeHead(httpsRes.statusCode, responseHeaders);
+                        clientRes.end(rewrittenBuffer);
+                    });
+                } else {
+                    // Pipe large video stream data directly to client (efficient streaming)
+                    clientRes.writeHead(httpsRes.statusCode, responseHeaders);
+                    httpsRes.pipe(clientRes);
+                }
             });
 
             httpsReq.on('error', (err) => {
