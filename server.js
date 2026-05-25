@@ -3,7 +3,7 @@ const https = require('https');
 const tls = require('tls');
 
 // Proxy Configuration (Defaults to user's current private proxy, overridable by environment variables)
-const PROXY_HOST = process.env.PROXY_HOST || '157.66.221.5';
+const PROXY_HOST = process.env.PROXY_HOST || '157.66.221.124';
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || '49120', 10);
 const PROXY_USER = process.env.PROXY_USER || 'user49120';
 const PROXY_PASS = process.env.PROXY_PASS || 'R8R1uwu3Ir';
